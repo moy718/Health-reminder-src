@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neon Reminder</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    overflow: hidden;
+    width: 100%;
+    height: 100%;
+  }
+  /* 霓虹灯管：4 条独立光条，各带渐变流光 + 辉光 */
+  .strip {
+    position: fixed;
+    pointer-events: none;
+    z-index: 10;
+    filter: drop-shadow(0 0 14px rgba(255, 120, 220, 0.85))
+            drop-shadow(0 0 36px rgba(90, 220, 255, 0.55));
+    opacity: 0;
+    transition: opacity 0.6s ease-out;
+  }
+  /* 波浪效果：实心底带紧贴屏幕边缘（无缝隙），半椭圆凸起沿光带滚动。
+     遮罩形状（--mask-h / --mask-v，JS 生成）= 矩形光带 + 一排半椭圆，
+     遮罩沿边框滚动 -> 半椭圆凸起依次移动，形成波浪 */
+  .strip-top, .strip-bottom {
+    left: 0;
+    width: 100%;
+    height: 36px; /* 20px 灯带 + 16px 半椭圆凸起 */
+  }
+  .strip-top { top: 0; }
+  .strip-bottom { bottom: 0; transform: scaleY(-1); } /* 翻转：凸起朝屏幕中心 */
+  .strip-left, .strip-right {
+    top: 0;
+    height: 100%;
+    width: 36px;
+  }
+  .strip-left { left: 0; }
+  .strip-right { right: 0; transform: scaleX(-1); } /* 翻转：凸起朝屏幕中心 */
+
+  .strip-top, .strip-bottom {
+    -webkit-mask: var(--mask-h) repeat-x;
+    mask: var(--mask-h) repeat-x;
+    animation: slide-x 3.2s linear infinite, wave-drift-x 1.8s linear infinite;
+  }
+  .strip-left, .strip-right {
+    -webkit-mask: var(--mask-v) repeat-y;
+    mask: var(--mask-v) repeat-y;
+    animation: slide-y 3.2s linear infinite, wave-drift-y 1.8s linear infinite;
+  }
+  @keyframes wave-drift-x {
+    to { -webkit-mask-position: -160px 0; mask-position: -160px 0; }
+  }
+  @keyframes wave-drift-y {
+    to { -webkit-mask-position: 0 -160px; mask-position: 0 -160px; }
+  }
+
+  /* 横向光条：左右流动 */
+  .strip-top, .strip-bottom {
+    background: linear-gradient(90deg,
+      #ff004c, #ff8a00, #ffe600, #2bff88, #00e5ff, #7a5cff, #ff00e0, #ff004c);
+    background-size: 200% 100%;
+    background-repeat: repeat;
+    animation: slide-x 3.2s linear infinite;
+  }
+  @keyframes slide-x {
+    to { background-position: -200% 0; }
+  }
+  /* 纵向光条：上下流动 */
+  .strip-left, .strip-right {
+    background: linear-gradient(180deg,
+      #ff004c, #ff8a00, #ffe600, #2bff88, #00e5ff, #7a5cff, #ff00e0, #ff004c);
+    background-size: 100% 200%;
+    background-repeat: repeat;
+    animation: slide-y 3.2s linear infinite;
+  }
+  @keyframes slide-y {
+    to { background-position: 0 -200%; }
+  }
+
+  /* 通电瞬间霓虹灯管闪烁（同时保持色彩流动与波浪起伏） */
+  .power-on .strip-top, .power-on .strip-bottom {
+    animation: flicker 1.0s linear, slide-x 3.2s linear 1.0s infinite, wave-drift-x 1.8s linear infinite;
+  }
+  .power-on .strip-left, .power-on .strip-right {
+    animation: flicker 1.0s linear, slide-y 3.2s linear 1.0s infinite, wave-drift-y 1.8s linear infinite;
+  }
+  @keyframes flicker {
+    0%   { opacity: 0; }
+    12%  { opacity: 1; }
+    24%  { opacity: 0.2; }
+    40%  { opacity: 0.9; }
+    55%  { opacity: 0.35; }
+    75%  { opacity: 1; }
+    100% { opacity: 1; }
+  }
+  .strip.show { opacity: 1; }
+  /* 结束淡出 */
+  .fade-out .strip { opacity: 0 !important; }
+</style>
+</head>
+<body>
+  <div class="strip strip-top" id="st"></div>
+  <div class="strip strip-bottom" id="sb"></div>
+  <div class="strip strip-left" id="sl"></div>
+  <div class="strip strip-right" id="sr"></div>
+  <script>
+    (function () {
+      function log(msg) {
+        try {
+          if (window.__TAURI__ && window.__TAURI__.core) {
+            window.__TAURI__.core.invoke('debug_log', { line: 'neon-page: ' + msg });
+          }
+        } catch (e) {}
+        // 浏览器预览时也输出到控制台
+        if (typeof console !== 'undefined') console.log('[neon]', msg);
+      }
+      log('page loaded');
+
+      // 生成波浪遮罩：矩形实心光带（紧贴屏幕边缘，无缝隙）+
+      // 一排半椭圆凸起（沿光带滚动形成波浪）。
+      // P=凸起间距 160px，B=凸起高度 16px，band=光带宽 20px
+      function waveMaskURI(vertical) {
+        const P = 160, B = 16, band = 20;
+        const T = band + B; // 遮罩片尺寸
+        const RX = P / 2 - 4; // 半椭圆横向半径（相邻凸起基本相连）
+        const svg = vertical
+          ? "<svg xmlns='http://www.w3.org/2000/svg' width='" + T + "' height='" + P + "'>" +
+            "<rect width='" + band + "' height='" + P + "' fill='white'/>" +
+            "<ellipse cx='" + band + "' cy='" + (P / 2) + "' rx='" + B + "' ry='" + RX + "' fill='white'/></svg>"
+          : "<svg xmlns='http://www.w3.org/2000/svg' width='" + P + "' height='" + T + "'>" +
+            "<rect width='" + P + "' height='" + band + "' fill='white'/>" +
+            "<ellipse cx='" + (P / 2) + "' cy='" + band + "' rx='" + RX + "' ry='" + B + "' fill='white'/></svg>";
+        return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+      }
+      const rootStyle = document.documentElement.style;
+      rootStyle.setProperty('--mask-h', 'url("' + waveMaskURI(false) + '")');
+      rootStyle.setProperty('--mask-v', 'url("' + waveMaskURI(true) + '")');
+      log('wave masks ready');
+
+      const root = document.body;
+      // 霓虹灯管通电闪烁 -> 渐变流光(灯带波浪起伏) -> 淡出 -> 关闭窗口
+      root.classList.add('power-on');
+      document.querySelectorAll('.strip').forEach(s => s.classList.add('show'));
+      setTimeout(() => root.classList.remove('power-on'), 4400);
+      setTimeout(() => root.classList.add('fade-out'), 4500);
+      setTimeout(() => {
+        log('closing');
+        try {
+          window.__TAURI__.window.getCurrentWindow().close();
+        } catch (e) { log('close failed: ' + e); }
+      }, 6000);
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,37 @@
+[package]
+name = "health-reminder"
+version = "1.8.1"
+description = "健康提醒助手 - 久坐、喝水、护眼提醒"
+authors = ["you"]
+edition = "2021"
+
+[lib]
+name = "desk_reminder_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset", "tray-icon"] }
+tauri-plugin-shell = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-autostart = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "5"
+url = "2"
+tauri-plugin-process = "2.3.1"
+tauri-plugin-dialog = "2"
+chrono = "0.4"
+rodio = "0.21.1"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = ["Win32_System_RemoteDesktop", "Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading", "Win32_Graphics_Gdi", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_SystemInformation"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.9"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+x11 = { version = "2.21", features = ["xlib", "xss"] }
+# 移除了不再需要的 notify-rust
