@@ -13,37 +13,36 @@
     width: 100%;
     height: 100%;
   }
-  /* 霓虹灯管：4 条独立光条，各带渐变流光 + 波浪 + 辉光。
-     运动方向统一为逆时针（从正面看）：
-     上边 -> 向左，左边 -> 向下，下边 -> 向右，右边 -> 向上 */
+  /* 霓虹灯管：4 条独立光条，各带渐变流光 + 辉光 */
   .strip {
     position: fixed;
     pointer-events: none;
     z-index: 10;
-    filter: drop-shadow(0 0 16px rgba(255, 110, 210, 0.75))
-            drop-shadow(0 0 44px rgba(80, 220, 255, 0.45));
+    filter: drop-shadow(0 0 14px rgba(255, 120, 220, 0.85))
+            drop-shadow(0 0 36px rgba(90, 220, 255, 0.55));
     opacity: 0;
     transition: opacity 0.6s ease-out;
   }
-  .strip.show { opacity: 1; }
-
-  /* 波浪形状：实心底带紧贴屏幕边缘（无缝隙），半椭圆凸起沿光带滚动。
-     遮罩（--mask-h / --mask-v，JS 生成）= 矩形光带 + 一排半椭圆 */
+  /* 波浪效果：实心底带紧贴屏幕边缘（无缝隙），半椭圆凸起沿光带滚动。
+     遮罩形状（--mask-h / --mask-v，JS 生成）= 矩形光带 + 一排半椭圆，
+     遮罩沿边框滚动 -> 半椭圆凸起依次移动，形成波浪 */
   .strip-top, .strip-bottom {
     left: 0;
     width: 100%;
-    height: 38px; /* 20px 灯带 + 18px 半椭圆凸起 */
+    height: 36px; /* 20px 灯带 + 16px 半椭圆凸起 */
   }
   .strip-top { top: 0; }
   .strip-bottom { bottom: 0; transform: scaleY(-1); } /* 翻转：凸起朝屏幕中心 */
   .strip-left, .strip-right {
     top: 0;
     height: 100%;
-    width: 38px;
+    width: 36px;
   }
   .strip-left { left: 0; }
   .strip-right { right: 0; transform: scaleX(-1); } /* 翻转：凸起朝屏幕中心 */
 
+  /* 运动方向统一为逆时针（从正面看）：
+     上边 -> 向左，左边 -> 向下，下边 -> 向右，右边 -> 向上 */
   .strip-top, .strip-bottom {
     -webkit-mask: var(--mask-h) repeat-x;
     mask: var(--mask-h) repeat-x;
@@ -52,59 +51,37 @@
     -webkit-mask: var(--mask-v) repeat-y;
     mask: var(--mask-v) repeat-y;
   }
-
-  /* 管芯高光：灯带中央更亮，边缘渐暗，模拟真实霓虹灯管的玻璃质感 */
-  .strip-top::before, .strip-bottom::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(180deg,
-      rgba(255, 255, 255, 0) 0%,
-      rgba(255, 255, 255, 0.32) 16%,
-      rgba(255, 255, 255, 0.62) 26%,
-      rgba(255, 255, 255, 0.32) 36%,
-      rgba(255, 255, 255, 0) 58%);
-  }
-  .strip-left::before, .strip-right::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(90deg,
-      rgba(255, 255, 255, 0) 0%,
-      rgba(255, 255, 255, 0.32) 16%,
-      rgba(255, 255, 255, 0.62) 26%,
-      rgba(255, 255, 255, 0.32) 36%,
-      rgba(255, 255, 255, 0) 58%);
-  }
-
-  /* 彩虹渐变（平滑过渡，首尾同色保证循环无缝） */
-  .strip-top, .strip-bottom {
-    background: linear-gradient(90deg,
-      #ff2d78, #ff5a5f, #ff8a3d, #ffc53d, #b8f03d, #5cff9e, #2bd9c0, #00b3ff, #4d7cff, #9d5cff, #ff2d78);
-    background-size: 200% 100%;
-    background-repeat: repeat;
-  }
-  .strip-left, .strip-right {
-    background: linear-gradient(180deg,
-      #ff2d78, #ff5a5f, #ff8a3d, #ffc53d, #b8f03d, #5cff9e, #2bd9c0, #00b3ff, #4d7cff, #9d5cff, #ff2d78);
-    background-size: 100% 200%;
-    background-repeat: repeat;
-  }
-
-  /* 动画：逆时针（上←、左↓、下→、右↑），色彩与波浪同步同向 */
   .strip-top    { animation: slide-x 3.2s linear infinite, wave-drift-x 1.8s linear infinite; }
   .strip-bottom { animation: slide-x-r 3.2s linear infinite, wave-drift-x-r 1.8s linear infinite; }
   .strip-left   { animation: slide-y-r 3.2s linear infinite, wave-drift-y-r 1.8s linear infinite; }
   .strip-right  { animation: slide-y 3.2s linear infinite, wave-drift-y 1.8s linear infinite; }
-
-  @keyframes slide-x   { to { background-position: -200% 0; } }
-  @keyframes slide-x-r { to { background-position: 200% 0; } }
-  @keyframes slide-y   { to { background-position: 0 -200%; } }
-  @keyframes slide-y-r { to { background-position: 0 200%; } }
   @keyframes wave-drift-x   { to { -webkit-mask-position: -160px 0; mask-position: -160px 0; } }
   @keyframes wave-drift-x-r { to { -webkit-mask-position: 160px 0; mask-position: 160px 0; } }
   @keyframes wave-drift-y   { to { -webkit-mask-position: 0 -160px; mask-position: 0 -160px; } }
   @keyframes wave-drift-y-r { to { -webkit-mask-position: 0 160px; mask-position: 0 160px; } }
+
+  /* 横向光条：左右流动（方向同波浪，逆时针） */
+  .strip-top, .strip-bottom {
+    background: linear-gradient(90deg,
+      #ff004c, #ff8a00, #ffe600, #2bff88, #00e5ff, #7a5cff, #ff00e0, #ff004c);
+    background-size: 200% 100%;
+    background-repeat: repeat;
+  }
+  .strip-top    { animation: slide-x 3.2s linear infinite; }
+  .strip-bottom { animation: slide-x-r 3.2s linear infinite; }
+  @keyframes slide-x   { to { background-position: -200% 0; } }
+  @keyframes slide-x-r { to { background-position: 200% 0; } }
+  /* 纵向光条：上下流动（方向同波浪，逆时针） */
+  .strip-left, .strip-right {
+    background: linear-gradient(180deg,
+      #ff004c, #ff8a00, #ffe600, #2bff88, #00e5ff, #7a5cff, #ff00e0, #ff004c);
+    background-size: 100% 200%;
+    background-repeat: repeat;
+  }
+  .strip-left  { animation: slide-y-r 3.2s linear infinite; }
+  .strip-right { animation: slide-y 3.2s linear infinite; }
+  @keyframes slide-y   { to { background-position: 0 -200%; } }
+  @keyframes slide-y-r { to { background-position: 0 200%; } }
 
   /* 通电瞬间霓虹灯管闪烁（同时保持色彩流动与波浪起伏，方向同上） */
   .power-on .strip-top    { animation: flicker 1.0s linear, slide-x 3.2s linear 1.0s infinite, wave-drift-x 1.8s linear infinite; }
@@ -120,6 +97,7 @@
     75%  { opacity: 1; }
     100% { opacity: 1; }
   }
+  .strip.show { opacity: 1; }
   /* 结束淡出 */
   .fade-out .strip { opacity: 0 !important; }
 </style>
@@ -144,11 +122,11 @@
 
       // 生成波浪遮罩：矩形实心光带（紧贴屏幕边缘，无缝隙）+
       // 一排半椭圆凸起（沿光带滚动形成波浪）。
-      // P=凸起间距 160px，B=凸起高度 18px，band=光带宽 20px
+      // P=凸起间距 160px，B=凸起高度 16px，band=光带宽 20px
       function waveMaskURI(vertical) {
-        const P = 160, B = 18, band = 20;
+        const P = 160, B = 16, band = 20;
         const T = band + B; // 遮罩片尺寸
-        const RX = P / 2 - 14; // 半椭圆横向半径（更修长，凸起间留优雅间隙）
+        const RX = P / 2 - 4; // 半椭圆横向半径（相邻凸起基本相连）
         const svg = vertical
           ? "<svg xmlns='http://www.w3.org/2000/svg' width='" + T + "' height='" + P + "'>" +
             "<rect width='" + band + "' height='" + P + "' fill='white'/>" +
