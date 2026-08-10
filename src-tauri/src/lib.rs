@@ -1148,9 +1148,12 @@ fn start_timer_thread(app_handle: AppHandle) {
             thread::sleep(base_interval);
 
             // 22 点后自动退出
+            // 注意：必须先判断时间再置位标记，否则第一次检查时标记就被
+            // 置位，后续检查全部跳过，导致永远不会退出（曾出过此 bug）
             if started_before_22 {
                 static EXITED: AtomicBool = AtomicBool::new(false);
-                if !EXITED.swap(true, Ordering::SeqCst) && Local::now().hour() >= 22 {
+                if !EXITED.load(Ordering::SeqCst) && Local::now().hour() >= 22 {
+                    EXITED.store(true, Ordering::SeqCst);
                     debug_log_write("backend: 22:00 reached, auto exiting");
                     app_handle.exit(0);
                     break;
