@@ -1736,6 +1736,9 @@ fn show_neon_overlay(app: AppHandle) -> Result<(), String> {
                 continue;
             }
             debug_log_write(&format!("neon: {} shown", label));
+            // 鼠标事件穿透：闪烁期间鼠标仍可正常操作其他窗口
+            let _ = window.set_ignore_cursor_events(true);
+            debug_log_write(&format!("neon: {} mouse click-through set", label));
         }
         // 保险：无论页面脚本是否正常，12 秒后强制关闭，避免窗口卡死遮挡屏幕
         std::thread::sleep(std::time::Duration::from_millis(12000));
