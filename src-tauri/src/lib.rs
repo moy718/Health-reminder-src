@@ -66,6 +66,121 @@ fn get_idle_seconds_windows() -> u64 {
     }
 }
 
+// Windows Core Audio 的峰值范围是 0.0..=1.0。0.001 约等于 -60 dB，
+// 足以忽略数字静音底噪，同时可以识别低音量的语音和音乐。
+#[cfg(target_os = "windows")]
+const AUDIO_ACTIVITY_PEAK_THRESHOLD: f32 = 0.001;
+
+#[cfg(target_os = "windows")]
+struct WindowsComGuard;
+
+#[cfg(target_os = "windows")]
+impl WindowsComGuard {
+    fn initialize() -> Option<Self> {
+        use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+
+        let result = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+        result.is_ok().then_some(Self)
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for WindowsComGuard {
+    fn drop(&mut self) {
+        use windows::Win32::System::Com::CoUninitialize;
+
+        unsafe { CoUninitialize() };
+    }
+}
+
+#[cfg(target_os = "windows")]
+#[derive(Clone, Copy)]
+struct AudioOutputSample {
+    peak: f32,
+    master_volume: f32,
+    muted: bool,
+}
+
+#[cfg(target_os = "windows")]
+impl AudioOutputSample {
+    fn is_active(self) -> bool {
+        !self.muted
+            && self.master_volume > 0.0
+            && self.peak >= AUDIO_ACTIVITY_PEAK_THRESHOLD
+    }
+}
+
+#[cfg(target_os = "windows")]
+struct WindowsAudioActivityMonitor {
+    enumerator: Option<windows::Win32::Media::Audio::IMMDeviceEnumerator>,
+}
+
+#[cfg(target_os = "windows")]
+impl WindowsAudioActivityMonitor {
+    fn new(com_initialized: bool) -> Self {
+        let mut monitor = Self { enumerator: None };
+        if com_initialized {
+            monitor.reconnect();
+        }
+        monitor
+    }
+
+    fn reconnect(&mut self) {
+        use windows::Win32::Media::Audio::{IMMDeviceEnumerator, MMDeviceEnumerator};
+        use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_ALL};
+
+        self.enumerator = unsafe {
+            CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL).ok()
+        };
+    }
+
+    fn sample(&mut self) -> Option<AudioOutputSample> {
+        if self.enumerator.is_none() {
+            self.reconnect();
+        }
+
+        let result = self
+            .enumerator
+            .as_ref()
+            .and_then(|enumerator| Self::sample_default_endpoint(enumerator).ok());
+
+        // 默认播放设备可能在运行期间切换。失败时丢弃枚举器，下一秒自动重连。
+        if result.is_none() {
+            self.enumerator = None;
+        }
+
+        result
+    }
+
+    fn sample_default_endpoint(
+        enumerator: &windows::Win32::Media::Audio::IMMDeviceEnumerator,
+    ) -> windows::core::Result<AudioOutputSample> {
+        use windows::Win32::Media::Audio::Endpoints::{
+            IAudioEndpointVolume, IAudioMeterInformation,
+        };
+        use windows::Win32::Media::Audio::{eConsole, eRender};
+        use windows::Win32::System::Com::CLSCTX_ALL;
+
+        unsafe {
+            let device = enumerator.GetDefaultAudioEndpoint(eRender, eConsole)?;
+            let meter: IAudioMeterInformation = device.Activate(CLSCTX_ALL, None)?;
+            let volume: IAudioEndpointVolume = device.Activate(CLSCTX_ALL, None)?;
+
+            Ok(AudioOutputSample {
+                peak: meter.GetPeakValue()?,
+                master_volume: volume.GetMasterVolumeLevelScalar()?,
+                muted: volume.GetMute()?.as_bool(),
+            })
+        }
+    }
+}
+
+fn effective_idle_seconds(input_idle_seconds: u64, seconds_since_audio: Option<u64>) -> u64 {
+    seconds_since_audio
+        .map(|audio_idle_seconds| input_idle_seconds.min(audio_idle_seconds))
+        .unwrap_or(input_idle_seconds)
+}
+
 #[cfg(target_os = "macos")]
 fn get_idle_seconds_macos() -> u64 {
     use std::process::Command;
@@ -471,6 +586,32 @@ mod tests {
 
         assert_eq!(timer.frozen_remaining, Some(45 * 60));
         assert_eq!(timer.frozen_total, Some(45 * 60));
+    }
+
+    #[test]
+    fn recent_audio_prevents_input_idle_from_taking_effect() {
+        assert_eq!(effective_idle_seconds(600, Some(0)), 0);
+        assert_eq!(effective_idle_seconds(600, Some(12)), 12);
+    }
+
+    #[test]
+    fn idle_uses_the_most_recent_input_or_audio_activity() {
+        assert_eq!(effective_idle_seconds(20, Some(120)), 20);
+        assert_eq!(effective_idle_seconds(20, None), 20);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_audio_monitor_reads_default_output_endpoint() {
+        let com_guard = WindowsComGuard::initialize().expect("COM should initialize");
+        let mut monitor = WindowsAudioActivityMonitor::new(true);
+        let sample = monitor.sample().expect("default audio endpoint should be readable");
+
+        assert!((0.0..=1.0).contains(&sample.peak));
+        assert!((0.0..=1.0).contains(&sample.master_volume));
+
+        drop(monitor);
+        drop(com_guard);
     }
 }
 
@@ -1131,6 +1272,17 @@ fn start_timer_thread(app_handle: AppHandle) {
         #[cfg(target_os = "linux")]
         let mut tick_counter: u32 = 0;
 
+        // Core Audio 接口必须在创建它们的线程中初始化并使用 COM。
+        // 声音监测器后声明、先析构，确保 COM 接口先于 CoUninitialize 释放。
+        #[cfg(target_os = "windows")]
+        let audio_com_guard = WindowsComGuard::initialize();
+        #[cfg(target_os = "windows")]
+        let mut audio_monitor = WindowsAudioActivityMonitor::new(audio_com_guard.is_some());
+        #[cfg(target_os = "windows")]
+        let mut last_audio_output_at: Option<Instant> = None;
+        #[cfg(target_os = "windows")]
+        let mut audio_was_active = false;
+
         // 22 点后自动退出（仅当进程在 22 点前已启动时生效；
         // 22 点后手动打开应用不立即退出）
         let started_before_22 = {
@@ -1292,7 +1444,33 @@ fn start_timer_thread(app_handle: AppHandle) {
                 }
 
                 let now = Instant::now();
-                let idle_seconds = get_idle_seconds();
+                let input_idle_seconds = get_idle_seconds();
+
+                #[cfg(target_os = "windows")]
+                let idle_seconds = {
+                    if let Some(sample) = audio_monitor.sample() {
+                        let audio_is_active = sample.is_active();
+                        if audio_is_active {
+                            last_audio_output_at = Some(now);
+                        }
+
+                        if audio_is_active != audio_was_active {
+                            debug_log_write(&format!(
+                                "backend: audio output active={} peak={:.5} volume={:.3} muted={}",
+                                audio_is_active, sample.peak, sample.master_volume, sample.muted
+                            ));
+                            audio_was_active = audio_is_active;
+                        }
+                    }
+
+                    let seconds_since_audio = last_audio_output_at
+                        .map(|last_audio| now.saturating_duration_since(last_audio).as_secs());
+                    effective_idle_seconds(input_idle_seconds, seconds_since_audio)
+                };
+
+                #[cfg(not(target_os = "windows"))]
+                let idle_seconds = input_idle_seconds;
+
                 let threshold = state.idle_threshold_seconds;
                 let was_idle = state.is_idle;
                 let is_now_idle = idle_seconds >= threshold;

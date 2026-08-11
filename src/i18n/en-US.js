@@ -53,9 +53,6 @@ export default {
     gotIt: 'Got It',
     snooze: 'Snooze {minutes} min',
     addTask: 'Add Custom Reminder',
-    checkUpdate: 'Check Update',
-    updateNow: 'Update Now',
-    checking: 'Checking...',
     test: 'Test',
     confirmRest: 'Rest Completed',
     selectBg: 'Select Image',
@@ -129,9 +126,8 @@ export default {
     floatingCustom: 'Custom Countdown',
     floatingCustomDesc: 'Set the floating title and target time',
     floatingTitlePlaceholder: 'E.g. Sale starts',
-    version: 'Version Update',
+    version: 'Version',
     currentVersion: 'Current version v{version}',
-    newVersion: 'Current version v{currentVersion} (New version v{version} available)',
     language: 'Language',
     customBgImage: 'Custom Lock Screen Background',
     customBgImageDesc: 'Select an image for the lock screen background',
@@ -200,16 +196,6 @@ export default {
     openMain: 'Open main window',
     hide: 'Hide floating window',
     resize: 'Drag to resize floating window',
-  },
-
-  // Update
-  update: {
-    newVersion: 'New version v{version} available',
-    updating: 'Updating...',
-    upToDate: 'Already up to date!',
-    checkFailed: 'Update check failed: {error}',
-    installFailed: 'Update install failed: {error}',
-    networkError: 'Network error, please try again later',
   },
 
   // Tray menu

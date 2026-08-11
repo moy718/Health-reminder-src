@@ -53,9 +53,6 @@ export default {
     gotIt: '我知道了',
     snooze: '推迟 {minutes} 分钟',
     addTask: '添加自定义提醒',
-    checkUpdate: '检查更新',
-    updateNow: '立即更新',
-    checking: '检查中...',
     test: '测试',
     confirmRest: '已完成休息',
     selectBg: '选择图片',
@@ -129,9 +126,8 @@ export default {
     floatingCustom: '自定义倒计时',
     floatingCustomDesc: '设置悬浮窗标题与目标时间',
     floatingTitlePlaceholder: '例如：秒杀开始',
-    version: '版本更新',
+    version: '版本',
     currentVersion: '当前版本 v{version}',
-    newVersion: '当前版本 v{currentVersion}（有新版本 v{version}）',
     language: '语言',
     customBgImage: '自定义锁屏背景',
     customBgImageDesc: '选择一张图片作为锁屏背景',
@@ -200,16 +196,6 @@ export default {
     openMain: '打开主窗口',
     hide: '隐藏悬浮窗',
     resize: '拖拽调整悬浮窗大小',
-  },
-
-  // 更新
-  update: {
-    newVersion: '发现新版本 v{version}',
-    updating: '正在更新...',
-    upToDate: '已是最新版本！',
-    checkFailed: '检查更新失败：{error}',
-    installFailed: '更新安装失败：{error}',
-    networkError: '网络错误，请稍后重试',
   },
 
   // 托盘菜单
