@@ -66,6 +66,7 @@ fork 自 [kaima2022/Health-reminder](https://github.com/kaima2022/Health-reminde
 
 ## 六、当前版本状态
 
+- 当前开发版已升级为 **1.8.3**：移除在线检查更新入口；将确认后的 v13 一体式连续波浪 + 5.8 秒呼吸灯合入 `neon.html`；Windows 空闲判断新增默认播放设备声音检测（有声音不进入空闲，停止播放后重新累计）
 - git 分支 `master`，最新提交 = "霓虹灯运动方向统一为逆时针（外观保持 v9）"
 - git 标签 `v9` = 外观冻结版（可 `git checkout v9 -- neon.html` 恢复外观）
 - 提交身份是占位（health-reminder-neon），用户尚未推送 GitHub（教程已给，用户可能随时推送）

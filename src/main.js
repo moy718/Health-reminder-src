@@ -4,7 +4,6 @@ import { getCurrentWindow, currentMonitor, availableMonitors, cursorPosition, Ph
 import { getVersion } from '@tauri-apps/api/app';
 import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart';
 import { isPermissionGranted, requestPermission } from '@tauri-apps/plugin-notification';
-import { relaunch } from '@tauri-apps/plugin-process';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { t, setLocale, getLocale, getSupportedLocales, detectLocale } from './i18n/index.js';
@@ -91,10 +90,6 @@ let lockScreenState = {
   waitingConfirm: false,
 };
 
-let updateInfo = null;
-let isUpdating = false;
-let isCheckingUpdate = false;
-let updateMessage = null;
 let notificationMessage = null;
 let showIdleResetBanner = false;  // 显示空闲重置通知横幅
 let notificationPermissionGranted = false;
@@ -1685,75 +1680,6 @@ async function init() {
   await syncFloatingWindow();
 }
 
-async function checkForUpdates(manual = false) {
-  if (manual) {
-    isCheckingUpdate = true;
-    updateMessage = null;
-    renderFullUI();
-  }
-
-  try {
-    // fork 版已禁用自动更新（不指向原项目更新源）
-    const update = null;
-    if (update) {
-      updateInfo = {
-        version: update.version,
-        body: update.body,
-        update: update
-      };
-      updateMessage = null;
-      renderFullUI();
-    } else if (manual) {
-      // 手动检查且没有更新时显示提示
-      updateMessage = { type: 'success', text: t('update.upToDate') };
-      renderFullUI();
-      setTimeout(() => {
-        updateMessage = null;
-        renderFullUI();
-      }, 3000);
-    }
-  } catch (e) {
-    console.error('Update check failed:', e);
-    if (manual) {
-      const errorMsg = normalizeErrorMessage(e, t('update.networkError'));
-      updateMessage = { type: 'error', text: t('update.checkFailed', { error: errorMsg }) };
-      renderFullUI();
-      setTimeout(() => {
-        updateMessage = null;
-        renderFullUI();
-      }, 3000);
-    }
-  } finally {
-    if (manual) {
-      isCheckingUpdate = false;
-      renderFullUI();
-    }
-  }
-}
-
-async function performUpdate() {
-  if (!updateInfo || isUpdating) return;
-  
-  isUpdating = true;
-  updateMessage = null;
-  renderFullUI();
-  
-  try {
-    await updateInfo.update.downloadAndInstall();
-    await relaunch();
-  } catch (e) {
-    console.error('Update failed:', e);
-    isUpdating = false;
-    const errorMsg = normalizeErrorMessage(e, t('update.networkError'));
-    updateMessage = { type: 'error', text: t('update.installFailed', { error: errorMsg }) };
-    renderFullUI();
-    setTimeout(() => {
-      updateMessage = null;
-      renderFullUI();
-    }, 5000);
-  }
-}
-
 async function loadSettings() {
   try {
     const saved = await invoke('load_settings');
@@ -2739,24 +2665,12 @@ function renderFullUI() {
         <div class="setting-row">
           <div class="setting-info">
             <label>${t('settings.version')}</label>
-            <span class="setting-desc">${updateInfo ? t('settings.newVersion', { currentVersion: appVersion, version: updateInfo.version }) : t('settings.currentVersion', { version: appVersion })}</span>
+            <span class="setting-desc">${t('settings.currentVersion', { version: appVersion })}</span>
           </div>
-          <button class="check-update-btn" id="checkUpdateBtn" ${isCheckingUpdate ? 'disabled' : ''}>
-            ${isCheckingUpdate ? '<span class="spinner"></span> ' + t('buttons.checking') : (updateInfo ? t('buttons.updateNow') : t('buttons.checkUpdate'))}
-          </button>
         </div>
 
       </div>
     </div>
-
-    ${updateMessage ? `
-    <div class="toast-message ${updateMessage.type === 'error' ? 'error' : 'success'}">
-      <div class="toast-content">
-        <span class="toast-icon">${updateMessage.type === 'error' ? '❌' : '✅'}</span>
-        <span class="toast-text">${escapeHtml(updateMessage.text)}</span>
-      </div>
-    </div>
-    ` : ''}
 
     ${notificationMessage ? `
     <div class="toast-message ${notificationMessage.type}">
@@ -2859,17 +2773,6 @@ function renderFullUI() {
     </div>
     ` : ''}
 
-    ${updateInfo ? `
-    <div class="update-banner ${isUpdating ? 'updating' : ''}">
-      <div class="update-content">
-        <div class="update-info">
-          <span class="update-icon">🎉</span>
-          <span class="update-text">${isUpdating ? t('update.updating') : t('update.newVersion', { version: updateInfo.version })}</span>
-        </div>
-        ${!isUpdating ? `<button class="update-btn" id="updateBtn">${t('buttons.updateNow')}</button>` : `<div class="update-spinner"></div>`}
-      </div>
-    </div>
-    ` : ''}
   `;
 
   cacheDomRefs();
@@ -3483,30 +3386,12 @@ function bindEvents() {
     confirmBtn.addEventListener('click', endLockScreen);
   }
 
-  const updateBtn = document.getElementById('updateBtn');
-  if (updateBtn) {
-    updateBtn.addEventListener('click', performUpdate);
-  }
-
   // 空闲重置横幅关闭按钮
   const idleResetDismissBtn = document.getElementById('idleResetDismissBtn');
   if (idleResetDismissBtn) {
     idleResetDismissBtn.addEventListener('click', () => {
       showIdleResetBanner = false;
       renderFullUI();
-    });
-  }
-
-  const checkUpdateBtn = document.getElementById('checkUpdateBtn');
-  if (checkUpdateBtn) {
-    checkUpdateBtn.addEventListener('click', () => {
-      if (updateInfo) {
-        // 如果已经有更新信息，执行更新
-        performUpdate();
-      } else {
-        // 否则检查更新
-        checkForUpdates(true);
-      }
     });
   }
 

@@ -3,156 +3,302 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Neon Reminder</title>
+<title>健康提醒 · v13 一体式连续波浪灯带</title>
 <style>
+  @property --rainbow-turn {
+    syntax: '<angle>';
+    inherits: false;
+    initial-value: 0deg;
+  }
+
+  * { box-sizing: border-box; }
   html, body {
+    width: 100%;
+    height: 100%;
     margin: 0;
-    padding: 0;
-    background: transparent;
     overflow: hidden;
-    width: 100%;
-    height: 100%;
+    background: transparent;
   }
-  /* 霓虹灯管：4 条独立光条，各带渐变流光 + 辉光 */
-  .strip {
+
+  .frame-svg {
     position: fixed;
-    pointer-events: none;
-    z-index: 10;
-    filter: drop-shadow(0 0 14px rgba(255, 120, 220, 0.85))
-            drop-shadow(0 0 36px rgba(90, 220, 255, 0.55));
-    opacity: 0;
-    transition: opacity 0.6s ease-out;
-  }
-  /* 波浪效果：实心底带紧贴屏幕边缘（无缝隙），半椭圆凸起沿光带滚动。
-     遮罩形状（--mask-h / --mask-v，JS 生成）= 矩形光带 + 一排半椭圆，
-     遮罩沿边框滚动 -> 半椭圆凸起依次移动，形成波浪 */
-  .strip-top, .strip-bottom {
-    left: 0;
+    inset: 0;
+    z-index: 20;
     width: 100%;
-    height: 36px; /* 20px 灯带 + 16px 半椭圆凸起 */
-  }
-  .strip-top { top: 0; }
-  .strip-bottom { bottom: 0; transform: scaleY(-1); } /* 翻转：凸起朝屏幕中心 */
-  .strip-left, .strip-right {
-    top: 0;
     height: 100%;
-    width: 36px;
+    overflow: visible;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity .7s cubic-bezier(.22,.8,.32,1);
   }
-  .strip-left { left: 0; }
-  .strip-right { right: 0; transform: scaleX(-1); } /* 翻转：凸起朝屏幕中心 */
+  .frame-svg.show {
+    opacity: 1;
+    animation: neon-breathe 5.8s ease-in-out infinite;
+  }
 
-  /* 运动方向统一为逆时针（从正面看）：
-     上边 -> 向左，左边 -> 向下，下边 -> 向右，右边 -> 向上 */
-  .strip-top, .strip-bottom {
-    -webkit-mask: var(--mask-h) repeat-x;
-    mask: var(--mask-h) repeat-x;
+  .rainbow-paint {
+    width: 100%;
+    height: 100%;
+    background:
+      radial-gradient(ellipse at center,
+        rgba(8,12,28,.18) 0%,
+        rgba(8,12,28,.08) 65%,
+        rgba(255,255,255,.14) 100%),
+      conic-gradient(from var(--rainbow-turn) at 50% 50%,
+        #ff3158 0deg,
+        #ff663b 32deg,
+        #ffb11b 64deg,
+        #ffe04b 92deg,
+        #48dc79 128deg,
+        #35dfcf 158deg,
+        #38c4ff 194deg,
+        #4f7aff 226deg,
+        #795cff 258deg,
+        #bf51ee 302deg,
+        #ff4b9d 336deg,
+        #ff3158 360deg);
+    filter:
+      drop-shadow(0 0 3px rgba(255,255,255,.36))
+      drop-shadow(0 0 10px rgba(67,181,255,.31))
+      drop-shadow(0 0 22px rgba(194,73,255,.20));
+    animation: rainbow-orbit 12s linear infinite;
   }
-  .strip-left, .strip-right {
-    -webkit-mask: var(--mask-v) repeat-y;
-    mask: var(--mask-v) repeat-y;
-  }
-  .strip-top    { animation: slide-x 3.2s linear infinite, wave-drift-x 1.8s linear infinite; }
-  .strip-bottom { animation: slide-x-r 3.2s linear infinite, wave-drift-x-r 1.8s linear infinite; }
-  .strip-left   { animation: slide-y-r 3.2s linear infinite, wave-drift-y-r 1.8s linear infinite; }
-  .strip-right  { animation: slide-y 3.2s linear infinite, wave-drift-y 1.8s linear infinite; }
-  @keyframes wave-drift-x   { to { -webkit-mask-position: -160px 0; mask-position: -160px 0; } }
-  @keyframes wave-drift-x-r { to { -webkit-mask-position: 160px 0; mask-position: 160px 0; } }
-  @keyframes wave-drift-y   { to { -webkit-mask-position: 0 -160px; mask-position: 0 -160px; } }
-  @keyframes wave-drift-y-r { to { -webkit-mask-position: 0 160px; mask-position: 0 160px; } }
 
-  /* 横向光条：左右流动（方向同波浪，逆时针） */
-  .strip-top, .strip-bottom {
-    background: linear-gradient(90deg,
-      #ff004c, #ff8a00, #ffe600, #2bff88, #00e5ff, #7a5cff, #ff00e0, #ff004c);
-    background-size: 200% 100%;
-    background-repeat: repeat;
+  @keyframes rainbow-orbit {
+    to { --rainbow-turn: -360deg; }
   }
-  .strip-top    { animation: slide-x 3.2s linear infinite; }
-  .strip-bottom { animation: slide-x-r 3.2s linear infinite; }
-  @keyframes slide-x   { to { background-position: -200% 0; } }
-  @keyframes slide-x-r { to { background-position: 200% 0; } }
-  /* 纵向光条：上下流动（方向同波浪，逆时针） */
-  .strip-left, .strip-right {
-    background: linear-gradient(180deg,
-      #ff004c, #ff8a00, #ffe600, #2bff88, #00e5ff, #7a5cff, #ff00e0, #ff004c);
-    background-size: 100% 200%;
-    background-repeat: repeat;
-  }
-  .strip-left  { animation: slide-y-r 3.2s linear infinite; }
-  .strip-right { animation: slide-y 3.2s linear infinite; }
-  @keyframes slide-y   { to { background-position: 0 -200%; } }
-  @keyframes slide-y-r { to { background-position: 0 200%; } }
 
-  /* 通电瞬间霓虹灯管闪烁（同时保持色彩流动与波浪起伏，方向同上） */
-  .power-on .strip-top    { animation: flicker 1.0s linear, slide-x 3.2s linear 1.0s infinite, wave-drift-x 1.8s linear infinite; }
-  .power-on .strip-bottom { animation: flicker 1.0s linear, slide-x-r 3.2s linear 1.0s infinite, wave-drift-x-r 1.8s linear infinite; }
-  .power-on .strip-left   { animation: flicker 1.0s linear, slide-y-r 3.2s linear 1.0s infinite, wave-drift-y-r 1.8s linear infinite; }
-  .power-on .strip-right  { animation: flicker 1.0s linear, slide-y 3.2s linear 1.0s infinite, wave-drift-y 1.8s linear infinite; }
-  @keyframes flicker {
-    0%   { opacity: 0; }
-    12%  { opacity: 1; }
-    24%  { opacity: 0.2; }
-    40%  { opacity: 0.9; }
-    55%  { opacity: 0.35; }
-    75%  { opacity: 1; }
-    100% { opacity: 1; }
+  /* 呼吸灯：整圈亮度平滑升高再降低，没有任何跳变或故障式闪烁。 */
+  @keyframes neon-breathe {
+    0%, 100% {
+      opacity: .64;
+      filter: brightness(.88) saturate(.94);
+    }
+    50% {
+      opacity: 1;
+      filter: brightness(1.12) saturate(1.08);
+    }
   }
-  .strip.show { opacity: 1; }
-  /* 结束淡出 */
-  .fade-out .strip { opacity: 0 !important; }
+  .fade-out .frame-svg { opacity: 0 !important; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .rainbow-paint { animation-duration: 30s; }
+    .frame-svg.show { animation: none; }
+  }
 </style>
 </head>
 <body>
-  <div class="strip strip-top" id="st"></div>
-  <div class="strip strip-bottom" id="sb"></div>
-  <div class="strip strip-left" id="sl"></div>
-  <div class="strip strip-right" id="sr"></div>
+  <svg class="frame-svg" id="frameSvg" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <mask id="continuousWaveMask" maskUnits="userSpaceOnUse" x="0" y="0">
+        <path id="waveRingMaskPath" fill="white" fill-rule="evenodd" clip-rule="evenodd"></path>
+      </mask>
+
+      <linearGradient id="ambientGradient" gradientUnits="objectBoundingBox" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#42e6da"></stop>
+        <stop offset=".32" stop-color="#4c7dff"></stop>
+        <stop offset=".66" stop-color="#c455ef"></stop>
+        <stop offset="1" stop-color="#ff4b78"></stop>
+      </linearGradient>
+      <filter id="ambientBlur" x="-30%" y="-30%" width="160%" height="160%">
+        <feGaussianBlur stdDeviation="9"></feGaussianBlur>
+      </filter>
+    </defs>
+
+    <path id="ambientPath"
+      fill="none"
+      stroke="url(#ambientGradient)"
+      stroke-width="30"
+      stroke-linejoin="round"
+      opacity=".30"
+      filter="url(#ambientBlur)"></path>
+
+    <foreignObject id="rainbowForeignObject" x="0" y="0" mask="url(#continuousWaveMask)">
+      <div xmlns="http://www.w3.org/1999/xhtml" class="rainbow-paint"></div>
+    </foreignObject>
+  </svg>
+
   <script>
     (function () {
-      function log(msg) {
+      const BASE_INSET = 19;
+      const AMPLITUDE = 10;
+      const TARGET_WAVELENGTH = 260;
+      const WAVE_PERIOD_MS = 4200;
+      const SAMPLE_DISTANCE = 5;
+      const CORNER_RADIUS = 42;
+      const FRAME_RATE = 30;
+      const FRAME_INTERVAL = 1000 / FRAME_RATE;
+
+      const body = document.body;
+      const svg = document.getElementById('frameSvg');
+      const mask = document.getElementById('continuousWaveMask');
+      const maskPath = document.getElementById('waveRingMaskPath');
+      const ambientPath = document.getElementById('ambientPath');
+      const foreignObject = document.getElementById('rainbowForeignObject');
+      const isTauri = !!window.__TAURI__;
+
+      function log(message) {
         try {
           if (window.__TAURI__ && window.__TAURI__.core) {
-            window.__TAURI__.core.invoke('debug_log', { line: 'neon-page: ' + msg });
+            window.__TAURI__.core.invoke('debug_log', { line: 'neon-page: ' + message });
           }
         } catch (e) {}
-        // 浏览器预览时也输出到控制台
-        if (typeof console !== 'undefined') console.log('[neon]', msg);
+        if (typeof console !== 'undefined') console.log('[neon]', message);
       }
-      log('page loaded');
+      log('continuous frame page loaded');
 
-      // 生成波浪遮罩：矩形实心光带（紧贴屏幕边缘，无缝隙）+
-      // 一排半椭圆凸起（沿光带滚动形成波浪）。
-      // P=凸起间距 160px，B=凸起高度 16px，band=光带宽 20px
-      function waveMaskURI(vertical) {
-        const P = 160, B = 16, band = 20;
-        const T = band + B; // 遮罩片尺寸
-        const RX = P / 2 - 4; // 半椭圆横向半径（相邻凸起基本相连）
-        const svg = vertical
-          ? "<svg xmlns='http://www.w3.org/2000/svg' width='" + T + "' height='" + P + "'>" +
-            "<rect width='" + band + "' height='" + P + "' fill='white'/>" +
-            "<ellipse cx='" + band + "' cy='" + (P / 2) + "' rx='" + B + "' ry='" + RX + "' fill='white'/></svg>"
-          : "<svg xmlns='http://www.w3.org/2000/svg' width='" + P + "' height='" + T + "'>" +
-            "<rect width='" + P + "' height='" + band + "' fill='white'/>" +
-            "<ellipse cx='" + (P / 2) + "' cy='" + band + "' rx='" + RX + "' ry='" + B + "' fill='white'/></svg>";
-        return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+      let geometry = null;
+      let lastFrame = -Infinity;
+      let startedAt = performance.now();
+
+      function addSegment(samples, cursor, length, pointAt) {
+        const count = Math.max(1, Math.ceil(length / SAMPLE_DISTANCE));
+        for (let i = 0; i < count; i++) {
+          const ratio = i / count;
+          const point = pointAt(ratio);
+          samples.push({
+            x: point.x,
+            y: point.y,
+            nx: point.nx,
+            ny: point.ny,
+            s: cursor + ratio * length
+          });
+        }
+        return cursor + length;
       }
-      const rootStyle = document.documentElement.style;
-      rootStyle.setProperty('--mask-h', 'url("' + waveMaskURI(false) + '")');
-      rootStyle.setProperty('--mask-v', 'url("' + waveMaskURI(true) + '")');
-      log('wave masks ready');
 
-      const root = document.body;
-      // 霓虹灯管通电闪烁 -> 渐变流光(灯带波浪起伏) -> 淡出 -> 关闭窗口
-      root.classList.add('power-on');
-      document.querySelectorAll('.strip').forEach(s => s.classList.add('show'));
-      setTimeout(() => root.classList.remove('power-on'), 4400);
-      setTimeout(() => root.classList.add('fade-out'), 4500);
-      setTimeout(() => {
-        log('closing');
-        try {
-          window.__TAURI__.window.getCurrentWindow().close();
-        } catch (e) { log('close failed: ' + e); }
-      }, 6000);
+      function buildGeometry() {
+        const width = Math.max(1, window.innerWidth);
+        const height = Math.max(1, window.innerHeight);
+        const inset = Math.min(BASE_INSET, width / 8, height / 8);
+        const left = inset;
+        const top = inset;
+        const right = width - inset;
+        const bottom = height - inset;
+        const maxRadius = Math.max(2, Math.min((right - left) / 4, (bottom - top) / 4));
+        const radius = Math.min(CORNER_RADIUS, maxRadius);
+        const horizontal = Math.max(0, right - left - radius * 2);
+        const vertical = Math.max(0, bottom - top - radius * 2);
+        const arcLength = Math.PI * radius / 2;
+        const samples = [];
+        let cursor = 0;
+
+        cursor = addSegment(samples, cursor, horizontal, function (t) {
+          return { x: left + radius + horizontal * t, y: top, nx: 0, ny: 1 };
+        });
+        cursor = addSegment(samples, cursor, arcLength, function (t) {
+          const a = -Math.PI / 2 + Math.PI / 2 * t;
+          return {
+            x: right - radius + radius * Math.cos(a),
+            y: top + radius + radius * Math.sin(a),
+            nx: -Math.cos(a), ny: -Math.sin(a)
+          };
+        });
+        cursor = addSegment(samples, cursor, vertical, function (t) {
+          return { x: right, y: top + radius + vertical * t, nx: -1, ny: 0 };
+        });
+        cursor = addSegment(samples, cursor, arcLength, function (t) {
+          const a = Math.PI / 2 * t;
+          return {
+            x: right - radius + radius * Math.cos(a),
+            y: bottom - radius + radius * Math.sin(a),
+            nx: -Math.cos(a), ny: -Math.sin(a)
+          };
+        });
+        cursor = addSegment(samples, cursor, horizontal, function (t) {
+          return { x: right - radius - horizontal * t, y: bottom, nx: 0, ny: -1 };
+        });
+        cursor = addSegment(samples, cursor, arcLength, function (t) {
+          const a = Math.PI / 2 + Math.PI / 2 * t;
+          return {
+            x: left + radius + radius * Math.cos(a),
+            y: bottom - radius + radius * Math.sin(a),
+            nx: -Math.cos(a), ny: -Math.sin(a)
+          };
+        });
+        cursor = addSegment(samples, cursor, vertical, function (t) {
+          return { x: left, y: bottom - radius - vertical * t, nx: 1, ny: 0 };
+        });
+        cursor = addSegment(samples, cursor, arcLength, function (t) {
+          const a = Math.PI + Math.PI / 2 * t;
+          return {
+            x: left + radius + radius * Math.cos(a),
+            y: top + radius + radius * Math.sin(a),
+            nx: -Math.cos(a), ny: -Math.sin(a)
+          };
+        });
+
+        const cycles = Math.max(4, Math.round(cursor / TARGET_WAVELENGTH));
+        const wavelength = cursor / cycles;
+
+        svg.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
+        mask.setAttribute('width', width);
+        mask.setAttribute('height', height);
+        foreignObject.setAttribute('width', width);
+        foreignObject.setAttribute('height', height);
+
+        ambientPath.setAttribute('d',
+          'M ' + (left + radius) + ' ' + top +
+          ' H ' + (right - radius) +
+          ' A ' + radius + ' ' + radius + ' 0 0 1 ' + right + ' ' + (top + radius) +
+          ' V ' + (bottom - radius) +
+          ' A ' + radius + ' ' + radius + ' 0 0 1 ' + (right - radius) + ' ' + bottom +
+          ' H ' + (left + radius) +
+          ' A ' + radius + ' ' + radius + ' 0 0 1 ' + left + ' ' + (bottom - radius) +
+          ' V ' + (top + radius) +
+          ' A ' + radius + ' ' + radius + ' 0 0 1 ' + (left + radius) + ' ' + top + ' Z'
+        );
+
+        geometry = { width, height, samples, perimeter: cursor, wavelength };
+        log('geometry ready ' + width + 'x' + height + ', cycles=' + cycles);
+      }
+
+      function drawFrame(now) {
+        if (!geometry) buildGeometry();
+        if (now - lastFrame >= FRAME_INTERVAL) {
+          lastFrame = now;
+          const phase = ((now - startedAt) / WAVE_PERIOD_MS) * geometry.wavelength;
+          const inner = geometry.samples.map(function (point, index) {
+            const wave = AMPLITUDE * Math.sin(
+              (point.s + phase) / geometry.wavelength * Math.PI * 2
+            );
+            const x = point.x + point.nx * wave;
+            const y = point.y + point.ny * wave;
+            return (index === 0 ? 'M ' : ' L ') + x.toFixed(2) + ' ' + y.toFixed(2);
+          }).join('') + ' Z';
+
+          const outer = 'M 0 0 H ' + geometry.width + ' V ' + geometry.height +
+            ' H 0 Z ';
+          maskPath.setAttribute('d', outer + inner);
+        }
+        requestAnimationFrame(drawFrame);
+      }
+
+      let resizeTimer = null;
+      window.addEventListener('resize', function () {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(function () {
+          geometry = null;
+          buildGeometry();
+        }, 80);
+      });
+
+      buildGeometry();
+      requestAnimationFrame(drawFrame);
+      svg.classList.add('show');
+
+      if (isTauri) {
+        setTimeout(function () {
+          log('fade out');
+          body.classList.add('fade-out');
+        }, 4500);
+        setTimeout(function () {
+          log('closing');
+          try { window.__TAURI__.window.getCurrentWindow().close(); } catch (e) {
+            log('close failed: ' + e);
+          }
+        }, 6000);
+      }
     })();
   </script>
 </body>
