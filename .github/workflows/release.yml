@@ -1,0 +1,113 @@
+name: 发布 Windows 安装包
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows-release:
+    name: 构建并发布 Windows x64
+    runs-on: windows-latest
+
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v6
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: 安装 Rust stable
+        shell: pwsh
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: 安装前端依赖
+        run: npm ci
+
+      - name: 构建 NSIS 安装包
+        run: npm run tauri -- build --bundles nsis --ci
+
+      - name: 整理安装包、便携版和校验文件
+        id: assets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $tauriVersion = (Get-Content src-tauri\tauri.conf.json -Raw | ConvertFrom-Json).version
+          $cargoVersion = (Select-String -LiteralPath src-tauri\Cargo.toml -Pattern '^version = "(.+)"$' | Select-Object -First 1).Matches.Groups[1].Value
+          $tag = "${{ github.ref_name }}"
+
+          if ($tag -ne "v$version") {
+            throw "标签 $tag 与 package.json 版本 $version 不一致"
+          }
+          if ($tauriVersion -ne $version -or $cargoVersion -ne $version) {
+            throw "版本号不一致：package.json=$version, tauri.conf.json=$tauriVersion, Cargo.toml=$cargoVersion"
+          }
+
+          $releaseDir = Join-Path $env:RUNNER_TEMP "release-assets"
+          $portableDir = Join-Path $env:RUNNER_TEMP "health-reminder-neon_${version}_windows-x64-portable"
+          New-Item -ItemType Directory -Path $releaseDir, $portableDir -Force | Out-Null
+
+          $installerSource = "src-tauri\target\release\bundle\nsis\health-reminder-neon_${version}_x64-setup.exe"
+          $exeSource = "src-tauri\target\release\health-reminder.exe"
+          if (!(Test-Path -LiteralPath $installerSource)) { throw "未找到安装包：$installerSource" }
+          if (!(Test-Path -LiteralPath $exeSource)) { throw "未找到可执行文件：$exeSource" }
+
+          $installer = Join-Path $releaseDir "health-reminder-neon_${version}_windows-x64-setup.exe"
+          $portableZip = Join-Path $releaseDir "health-reminder-neon_${version}_windows-x64-portable.zip"
+          Copy-Item -LiteralPath $installerSource -Destination $installer
+          Copy-Item -LiteralPath $exeSource -Destination (Join-Path $portableDir "health-reminder-neon.exe")
+          Copy-Item -LiteralPath "LICENSE" -Destination $portableDir
+          @"
+          健康提醒霓虹灯版 v$version（Windows x64 便携版）
+
+          双击 health-reminder-neon.exe 即可运行，无需安装。
+          推荐普通用户下载并使用 setup.exe 安装包。
+          Windows 10/11 通常已包含程序所需的 Microsoft Edge WebView2 Runtime。
+          "@ | Set-Content -LiteralPath (Join-Path $portableDir "使用说明.txt") -Encoding utf8
+          Compress-Archive -Path (Join-Path $portableDir "*") -DestinationPath $portableZip -CompressionLevel Optimal
+
+          $checksums = Join-Path $releaseDir "SHA256SUMS.txt"
+          Get-FileHash -Algorithm SHA256 -LiteralPath $installer, $portableZip |
+            ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } |
+            Set-Content -LiteralPath $checksums -Encoding ascii
+
+          "release_dir=$releaseDir" >> $env:GITHUB_OUTPUT
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: 创建或更新 GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $false
+          $tag = "${{ github.ref_name }}"
+          $version = "${{ steps.assets.outputs.version }}"
+          $releaseDir = "${{ steps.assets.outputs.release_dir }}"
+          $assetArgs = Get-ChildItem -LiteralPath $releaseDir -File | ForEach-Object { $_.FullName }
+
+          gh release view $tag --repo "${{ github.repository }}" *> $null
+          $releaseExists = $LASTEXITCODE -eq 0
+          if ($releaseExists) {
+            gh release upload $tag @assetArgs --clobber --repo "${{ github.repository }}"
+          } else {
+            gh release create $tag @assetArgs `
+              --verify-tag `
+              --latest `
+              --generate-notes `
+              --title "健康提醒霓虹灯版 v$version" `
+              --repo "${{ github.repository }}"
+          }
