@@ -7,6 +7,7 @@ import { isPermissionGranted, requestPermission } from '@tauri-apps/plugin-notif
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { t, setLocale, getLocale, getSupportedLocales, detectLocale } from './i18n/index.js';
+import { LockCountdown } from './lock-countdown.js';
 
 const ICONS = {
   sit: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"></path><path d="M12 6v6l4 2"></path></svg>`,
@@ -84,11 +85,18 @@ let recentTriggeredTasks = {};
 let lockScreenState = {
   active: false,
   remaining: 0,
+  endsAt: 0,
   task: null,
   unlockProgress: 0,
   unlockTimer: null,
   waitingConfirm: false,
 };
+let lockScreenStarting = false;
+const lockCountdown = new LockCountdown({
+  now: () => Date.now(),
+  setIntervalFn: (callback, delay) => window.setInterval(callback, delay),
+  clearIntervalFn: (timerId) => window.clearInterval(timerId),
+});
 
 let notificationMessage = null;
 let showIdleResetBanner = false;  // 显示空闲重置通知横幅
@@ -1394,7 +1402,7 @@ async function handleTriggeredTask(task) {
   // 找到完整的任务配置
   const fullTask = settings.tasks.find(t => t.id === task.id) || task;
 
-  if (activePopup || lockScreenState.active) {
+  if (activePopup || lockScreenState.active || lockScreenStarting) {
     // 如果当前已有弹窗或锁屏，加入队列
     if (!taskQueue.find(t => t.id === fullTask.id)) {
       taskQueue.push(fullTask);
@@ -1424,10 +1432,6 @@ function startTriggeredTaskPolling() {
   };
   run();
 }
-
-window.__HEALTH_REMINDER_HANDLE_TRIGGER__ = (task) => {
-  handleTriggeredTask(task).catch(console.error);
-};
 
 async function init() {
   applyTheme(settings.theme); // 在加载设置后立即应用主题
@@ -1527,13 +1531,7 @@ async function init() {
       if (btn) btn.style.display = 'none';
     }, 0);
 
-    const lockInterval = setInterval(() => {
-      lockScreenState.remaining--;
-      updateLockScreenTimer();
-      if (lockScreenState.remaining <= 0) {
-        clearInterval(lockInterval);
-      }
-    }, 1000);
+    startLockCountdown(duration);
 
     return;
   }
@@ -1620,10 +1618,7 @@ async function init() {
     }
   });
 
-  // 监听后端任务触发事件
-  await listen('task-triggered', async (event) => {
-    await handleTriggeredTask(event.payload);
-  });
+  // 后端触发统一从 pending queue 拉取，避免事件、eval 和轮询重复投递。
   startTriggeredTaskPolling();
 
   // 监听空闲状态变化
@@ -1738,6 +1733,19 @@ function applyTheme(theme) {
 
 async function triggerNotification(task) {
   dbgLog('ui: triggerNotification ' + task.id + ' soundEnabled=' + settings.soundEnabled);
+
+  // 锁屏窗口创建包含异步操作。同一秒多个任务到点时，必须在第一次 await
+  // 之前占用启动锁，否则会并发创建两个锁屏倒计时。
+  if (settings.lockScreenEnabled) {
+    if (lockScreenStarting || lockScreenState.active) {
+      if (!taskQueue.find(t => t.id === task.id)) {
+        taskQueue.push(task);
+      }
+      return;
+    }
+    lockScreenStarting = true;
+  }
+
   showNeonReminder();
 
   // 计算合并的任务
@@ -1764,9 +1772,13 @@ async function triggerNotification(task) {
   notifySystem(displayTitle, getTaskDisplayDesc(task)).catch(console.error);
 
   if (settings.lockScreenEnabled) {
-    renderFullUI();
-    await new Promise(resolve => setTimeout(resolve, 0));
-    await startLockScreen(task, mergedTasks);
+    try {
+      renderFullUI();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      await startLockScreen(task, mergedTasks);
+    } finally {
+      lockScreenStarting = false;
+    }
   } else {
     activePopup = { ...task, mergedTaskIds: mergedTasks.map(t => t.id) };
     // 新弹窗：显示"请走动一会/请喝水/请远眺"等文案，不打断打字，
@@ -1790,11 +1802,6 @@ function getReminderMessage(task, mergedTasks = []) {
 }
 
 async function startLockScreen(task, mergedTasks = []) {
-  try {
-    invoke('timer_set_lock_screen_active', { active: true }).catch(console.error);
-  } catch (e) {
-    console.error(e);
-  }
   mainWindowVisibleBeforeLock = true;
   // 通知后端锁屏模式激活
   invoke('timer_set_lock_screen_active', { active: true }).catch(console.error);
@@ -1813,6 +1820,7 @@ async function startLockScreen(task, mergedTasks = []) {
   lockScreenState = {
     active: true,
     remaining: lockDuration,
+    endsAt: Date.now() + lockDuration * 1000,
     task: { ...task },
     mergedTaskIds: mergedIds,
     unlockProgress: 0,
@@ -1841,24 +1849,28 @@ async function startLockScreen(task, mergedTasks = []) {
     console.error('Failed to enter lock mode', e);
   }
 
-  const lockInterval = setInterval(() => {
-    if (!lockScreenState.active) {
-      clearInterval(lockInterval);
-      return;
+  startLockCountdown(lockDuration, () => {
+    if (settings.autoUnlock) {
+      endLockScreen();
+    } else {
+      showLockConfirm();
     }
+  });
+}
 
-    lockScreenState.remaining--;
-    updateLockScreenTimer();
+function stopLockCountdown() {
+  lockCountdown.stop();
+}
 
-    if (lockScreenState.remaining <= 0) {
-      clearInterval(lockInterval);
-      if (settings.autoUnlock) {
-        endLockScreen();
-      } else {
-        showLockConfirm();
-      }
-    }
-  }, 1000);
+function startLockCountdown(durationSeconds, onComplete = null) {
+  lockCountdown.start(durationSeconds, {
+    onTick: (remaining, endsAt) => {
+      lockScreenState.endsAt = endsAt;
+      lockScreenState.remaining = remaining;
+      updateLockScreenTimer();
+    },
+    onComplete: () => onComplete?.(),
+  });
 }
 
 function showLockConfirm() {
@@ -1904,6 +1916,7 @@ async function snoozeTask(minutes) {
 }
 
 async function endLockScreen(snoozed = false) {
+  stopLockCountdown();
   const restoreMainWindow = mainWindowVisibleBeforeLock;
   const restoreFloatingWindow = floatingWindowVisibleBeforeLock && settings.floatingWindowEnabled;
 
@@ -2005,7 +2018,7 @@ function cancelUnlockPress() {
 }
 
 function processNextTask() {
-  if (taskQueue.length > 0 && !activePopup && !lockScreenState.active) {
+  if (taskQueue.length > 0 && !activePopup && !lockScreenState.active && !lockScreenStarting) {
     const nextTask = taskQueue.shift();
     triggerNotification(nextTask);
   } else {
