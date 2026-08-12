@@ -15,7 +15,17 @@
 
 ## 🚀 使用
 
-到 [Releases](../../releases) 页面下载安装包（Windows），双击安装即可。
+到 [Releases](../../releases/latest) 页面下载 Windows 版本：
+
+| 文件 | 用途 |
+| --- | --- |
+| `health-reminder-neon_*_windows-x64-setup.exe` | Windows 10/11 64 位安装包，推荐普通用户使用 |
+| `health-reminder-neon_*_windows-x64-portable.zip` | 免安装便携版，解压后运行其中的 EXE |
+| `SHA256SUMS.txt` | 下载文件的 SHA-256 完整性校验值 |
+
+> GitHub 自动显示的 `Source code (zip)` 和 `Source code (tar.gz)` 只包含源码，不是 Windows 安装包，因此其中没有 EXE。需要直接使用软件的用户应下载上表中的安装包或便携版。
+
+双击安装包完成安装即可。首次运行便携版时，Windows 可能显示安全提示，这是因为个人开源版本没有购买商业代码签名证书；请确认下载地址来自本仓库后再运行。
 
 ## 🛠️ 从源码构建
 
@@ -26,6 +36,8 @@ npm install
 npm run tauri dev      # 开发调试
 npm run tauri build    # 打包安装包（输出在 src-tauri/target/release/bundle/）
 ```
+
+维护者发布新版本时，应先同步 `package.json`、`src-tauri/Cargo.toml` 和 `src-tauri/tauri.conf.json` 中的版本号，再创建并推送同版本标签（例如 `v1.8.4`）。GitHub Actions 会自动构建 Windows 安装包、便携版及校验文件并附加到 Release。
 
 ## 📄 主要改动（相对原版）
 
