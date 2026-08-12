@@ -36,6 +36,12 @@ jobs:
       - name: 安装前端依赖
         run: npm ci
 
+      - name: 运行前端回归测试
+        run: npm test
+
+      - name: 运行 Rust 测试
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
       - name: 构建 NSIS 安装包
         run: npm run tauri -- build --bundles nsis --ci
 

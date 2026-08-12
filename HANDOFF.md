@@ -67,6 +67,7 @@ fork 自 [kaima2022/Health-reminder](https://github.com/kaima2022/Health-reminde
 ## 六、当前版本状态
 
 - 当前开发版已升级为 **1.8.3**：移除在线检查更新入口；将确认后的 v13 一体式连续波浪 + 5.8 秒呼吸灯合入 `neon.html`；Windows 空闲判断新增默认播放设备声音检测（有声音不进入空闲，停止播放后重新累计）
+- **1.8.4** 修复锁屏倒计时加速：后端只保留 pending queue 单通道投递，前端增加锁屏启动互斥，并按绝对结束时间计算剩余秒数，避免多个任务同秒到点时叠加计时器
 - GitHub 发布：`.github/workflows/release.yml` 在推送 `v*` 标签时自动构建 Windows x64 安装包、便携版 ZIP 和 `SHA256SUMS.txt`，并上传到 Releases；GitHub 自动生成的 Source code ZIP 不包含 EXE
 - git 分支 `master`，最新提交 = "霓虹灯运动方向统一为逆时针（外观保持 v9）"
 - git 标签 `v9` = 外观冻结版（可 `git checkout v9 -- neon.html` 恢复外观）
