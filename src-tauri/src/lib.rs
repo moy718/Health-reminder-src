@@ -17,6 +17,119 @@ use tauri::{
 use tauri_plugin_notification::NotificationExt;
 use url::form_urlencoded;
 
+#[cfg(target_os = "windows")]
+const DAILY_START_TASK_NAME: &str = "HealthReminder-Daily-8AM";
+
+#[cfg(target_os = "windows")]
+fn claim_single_instance() -> bool {
+    use windows::core::w;
+    use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
+    use windows::Win32::System::Threading::CreateMutexW;
+
+    let mutex = unsafe {
+        CreateMutexW(
+            None,
+            false,
+            w!("Local\\HealthReminderNeon.SingleInstance"),
+        )
+    };
+
+    match mutex {
+        Ok(handle) => {
+            let already_running = unsafe { GetLastError() } == ERROR_ALREADY_EXISTS;
+            // windows 0.58 的 HANDLE 是不带 Drop 的复制类型；这里故意不调用
+            // CloseHandle，让互斥体一直存活到进程退出，再由 Windows 自动回收。
+            let _instance_mutex = handle;
+            !already_running
+        }
+        Err(error) => {
+            debug_log_write(&format!(
+                "backend: single-instance mutex unavailable: {}",
+                error
+            ));
+            true
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn powershell_single_quoted(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+#[cfg(target_os = "windows")]
+fn register_daily_start_task(executable: &std::path::Path) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    use std::process::Command;
+
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+    let executable = executable
+        .to_str()
+        .ok_or_else(|| "executable path is not valid UTF-8".to_string())?;
+    let executable = powershell_single_quoted(executable);
+    let task_name = powershell_single_quoted(DAILY_START_TASK_NAME);
+
+    // GUI 程序只应在当前用户已登录时启动。StartWhenAvailable 会在电脑错过
+    // 08:00 后尽快补启动，WakeToRun 则允许到点时从睡眠中唤醒电脑。
+    let script = format!(
+        "$ErrorActionPreference='Stop'; \
+         $action=New-ScheduledTaskAction -Execute {executable} -Argument '--silent'; \
+         $trigger=New-ScheduledTaskTrigger -Daily -At '08:00'; \
+         $settings=New-ScheduledTaskSettingsSet -StartWhenAvailable -WakeToRun \
+           -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -Hidden \
+           -MultipleInstances IgnoreNew; \
+         $principal=New-ScheduledTaskPrincipal \
+           -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name) \
+           -LogonType Interactive -RunLevel Limited; \
+         Register-ScheduledTask -TaskName {task_name} -Action $action -Trigger $trigger \
+           -Settings $settings -Principal $principal \
+           -Description '每天早上 8:00 自动启动健康提醒（静默进入托盘）' \
+           -Force | Out-Null"
+    );
+
+    let output = Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &script,
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|error| format!("failed to launch PowerShell: {}", error))?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(if stderr.is_empty() {
+            format!("PowerShell exited with {}", output.status)
+        } else {
+            stderr
+        })
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn register_daily_start_task_async() {
+    thread::spawn(|| match std::env::current_exe() {
+        Ok(executable) => match register_daily_start_task(&executable) {
+            Ok(()) => debug_log_write("backend: daily 08:00 startup task registered"),
+            Err(error) => debug_log_write(&format!(
+                "backend: failed to register daily 08:00 startup task: {}",
+                error
+            )),
+        },
+        Err(error) => debug_log_write(&format!(
+            "backend: failed to resolve executable for daily startup: {}",
+            error
+        )),
+    });
+}
+
 // ============= 跨平台空闲检测 =============
 
 /// 获取系统空闲时间（秒）
@@ -2395,6 +2508,11 @@ fn exit_lock_mode(app: tauri::AppHandle, state: State<LockState>, restore_visibl
 }
 
 pub fn run() {
+    #[cfg(target_os = "windows")]
+    if !claim_single_instance() {
+        return;
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
@@ -2532,7 +2650,10 @@ pub fn run() {
             start_timer_thread(app.handle().clone());
 
             #[cfg(target_os = "windows")]
-            start_session_monitor(app.handle().clone());
+            {
+                register_daily_start_task_async();
+                start_session_monitor(app.handle().clone());
+            }
 
             Ok(())
         })

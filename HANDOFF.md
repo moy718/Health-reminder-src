@@ -11,7 +11,7 @@ fork 自 [kaima2022/Health-reminder](https://github.com/kaima2022/Health-reminde
 1. **霓虹灯边框提醒**：到点屏幕四边亮起彩色灯带（多屏支持、逆时针环绕、实心底带+半椭圆波浪、6 秒、鼠标穿透）
 2. **提醒弹窗**：右上角弹出"请走动一会/请喝水/请远眺/XX提醒"，不抢键盘焦点、鼠标穿透、12 秒自动消失
 3. **提醒自动循环**：提醒后自动重置计时，无需点击
-4. **22 点后自动退出**
+4. **22 点后自动退出，次日早上 8 点通过 Windows 计划任务静默启动**
 
 ## 二、文件位置（都在 Windows 机器上）
 
@@ -68,6 +68,7 @@ fork 自 [kaima2022/Health-reminder](https://github.com/kaima2022/Health-reminde
 
 - 当前开发版已升级为 **1.8.3**：移除在线检查更新入口；将确认后的 v13 一体式连续波浪 + 5.8 秒呼吸灯合入 `neon.html`；Windows 空闲判断新增默认播放设备声音检测（有声音不进入空闲，停止播放后重新累计）
 - **1.8.4** 修复锁屏倒计时加速：后端只保留 pending queue 单通道投递，前端增加锁屏启动互斥，并按绝对结束时间计算剩余秒数，避免多个任务同秒到点时叠加计时器
+- **1.8.5（仅本地，暂未推送 GitHub）** 增加 Windows 每天 08:00 自动启动计划任务（静默进托盘、错过后补启动、允许从睡眠唤醒），并增加单实例保护，避免计划任务与已运行程序形成双进程
 - GitHub 发布：`.github/workflows/release.yml` 在推送 `v*` 标签时自动构建 Windows x64 安装包、便携版 ZIP 和 `SHA256SUMS.txt`，并上传到 Releases；GitHub 自动生成的 Source code ZIP 不包含 EXE
 - git 分支 `master`，最新提交 = "霓虹灯运动方向统一为逆时针（外观保持 v9）"
 - git 标签 `v9` = 外观冻结版（可 `git checkout v9 -- neon.html` 恢复外观）
