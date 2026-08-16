@@ -65,7 +65,7 @@ export default {
 
   // 锁屏
   lockScreen: {
-    emergencyUnlock: '长按 3 秒紧急解锁',
+    emergencyUnlock: '点击解除锁屏',
     restTime: '休息时间',
     restMessage: '让身体和眼睛休息一下吧~',
     timeUp: '休息时间到！',

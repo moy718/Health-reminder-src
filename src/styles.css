@@ -894,17 +894,6 @@ body {
   transform: scale(0.98);
 }
 
-.unlock-btn .unlock-progress {
-  position: absolute;
-  top: 0;
-  left: 0;
-  height: 100%;
-  width: 0;
-  background: linear-gradient(90deg, rgba(255, 59, 48, 0.4), rgba(255, 59, 48, 0.6));
-  border-radius: 16px;
-  transition: width 0.1s linear;
-}
-
 .unlock-btn .unlock-text {
   position: relative;
   z-index: 1;
@@ -916,14 +905,6 @@ body {
 .unlock-btn .unlock-text svg {
   width: 16px;
   height: 16px;
-}
-
-.unlock-btn.pressing {
-  border-color: var(--danger);
-}
-
-.unlock-btn.pressing .unlock-text {
-  color: white;
 }
 
 .setting-row .setting-info {

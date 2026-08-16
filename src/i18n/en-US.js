@@ -65,7 +65,7 @@ export default {
 
   // Lock screen
   lockScreen: {
-    emergencyUnlock: 'Hold 3 sec to unlock',
+    emergencyUnlock: 'Click to unlock',
     restTime: 'Rest Time',
     restMessage: 'Take a break for your body and eyes~',
     timeUp: 'Rest time is up!',

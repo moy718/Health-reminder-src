@@ -87,11 +87,10 @@ let lockScreenState = {
   remaining: 0,
   endsAt: 0,
   task: null,
-  unlockProgress: 0,
-  unlockTimer: null,
   waitingConfirm: false,
 };
 let lockScreenStarting = false;
+let lockScreenEnding = false;
 const lockCountdown = new LockCountdown({
   now: () => Date.now(),
   setIntervalFn: (callback, delay) => window.setInterval(callback, delay),
@@ -1518,8 +1517,6 @@ async function init() {
       active: true,
       remaining: duration,
       task: task,
-      unlockProgress: 0,
-      unlockTimer: null,
       waitingConfirm: false,
     };
 
@@ -1823,10 +1820,9 @@ async function startLockScreen(task, mergedTasks = []) {
     endsAt: Date.now() + lockDuration * 1000,
     task: { ...task },
     mergedTaskIds: mergedIds,
-    unlockProgress: 0,
-    unlockTimer: null,
     waitingConfirm: false,
   };
+  lockScreenEnding = false;
 
   renderFullUI();
 
@@ -1916,6 +1912,8 @@ async function snoozeTask(minutes) {
 }
 
 async function endLockScreen(snoozed = false) {
+  if (!lockScreenState.active || lockScreenEnding) return;
+  lockScreenEnding = true;
   stopLockCountdown();
   const restoreMainWindow = mainWindowVisibleBeforeLock;
   const restoreFloatingWindow = floatingWindowVisibleBeforeLock && settings.floatingWindowEnabled;
@@ -1950,6 +1948,7 @@ async function endLockScreen(snoozed = false) {
 
   lockScreenState.active = false;
   lockScreenState.waitingConfirm = false;
+  lockScreenEnding = false;
   processNextTask();
 }
 
@@ -1977,44 +1976,6 @@ function updateLockScreenTimer() {
     const offset = 565 * (1 - lockScreenState.remaining / total);
     progressEl.style.strokeDashoffset = offset;
   }
-}
-
-function startUnlockPress() {
-  if (lockScreenState.unlockTimer) return;
-  
-  lockScreenState.unlockProgress = 0;
-  const btn = document.querySelector('.unlock-btn');
-  const progressBar = document.querySelector('.unlock-progress');
-  
-  if (btn) btn.classList.add('pressing');
-  
-  lockScreenState.unlockTimer = setInterval(() => {
-    lockScreenState.unlockProgress += 100 / 30;
-    
-    if (progressBar) {
-      progressBar.style.width = `${lockScreenState.unlockProgress}%`;
-    }
-    
-    if (lockScreenState.unlockProgress >= 100) {
-      cancelUnlockPress();
-      endLockScreen();
-    }
-  }, 100);
-}
-
-function cancelUnlockPress() {
-  if (lockScreenState.unlockTimer) {
-    clearInterval(lockScreenState.unlockTimer);
-    lockScreenState.unlockTimer = null;
-  }
-  
-  lockScreenState.unlockProgress = 0;
-  
-  const btn = document.querySelector('.unlock-btn');
-  const progressBar = document.querySelector('.unlock-progress');
-  
-  if (btn) btn.classList.remove('pressing');
-  if (progressBar) progressBar.style.width = '0';
 }
 
 function processNextTask() {
@@ -2742,7 +2703,6 @@ function renderFullUI() {
         ` : `
         ${settings.strictMode || isLockSlaveWindow ? '' : `
         <button class="unlock-btn" id="unlockBtn">
-          <div class="unlock-progress"></div>
           <div class="unlock-text">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
             ${t('lockScreen.emergencyUnlock')}
@@ -3383,20 +3343,12 @@ function bindEvents() {
 
   const unlockBtn = document.getElementById('unlockBtn');
   if (unlockBtn) {
-    unlockBtn.addEventListener('mousedown', startUnlockPress);
-    unlockBtn.addEventListener('mouseup', cancelUnlockPress);
-    unlockBtn.addEventListener('mouseleave', cancelUnlockPress);
-    unlockBtn.addEventListener('touchstart', (e) => {
-      e.preventDefault();
-      startUnlockPress();
-    });
-    unlockBtn.addEventListener('touchend', cancelUnlockPress);
-    unlockBtn.addEventListener('touchcancel', cancelUnlockPress);
+    unlockBtn.addEventListener('click', () => endLockScreen());
   }
 
   const confirmBtn = document.getElementById('confirmBtn');
   if (confirmBtn) {
-    confirmBtn.addEventListener('click', endLockScreen);
+    confirmBtn.addEventListener('click', () => endLockScreen());
   }
 
   // 空闲重置横幅关闭按钮
