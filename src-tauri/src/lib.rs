@@ -378,6 +378,7 @@ struct FloatingRevealState(Arc<Mutex<FloatingRevealInner>>);
 struct LockStateInner {
     windows: Vec<String>,
     args: Option<LockTaskArgs>,
+    primary_monitor: Option<(i32, i32)>,
 }
 struct LockState(Mutex<LockStateInner>);
 
@@ -1445,49 +1446,25 @@ fn start_timer_thread(app_handle: AppHandle) {
             // On other platforms, check every 1 second
             let is_locked = get_timer_state().lock().unwrap().lock_screen_active;
             if is_locked {
-                // 主窗口
-                if let Some(window) = app_handle.get_webview_window("main") {
-                    if !window.is_visible().unwrap_or(false) {
-                        let _ = window.show();
-                    }
-                    let _ = window.unminimize();
-                    if !window.is_focused().unwrap_or(false) {
-                        let _ = window.set_focus();
-                    }
-                    let _ = window.set_always_on_top(true);
-
-                    // Linux-specific: Additional focus enforcement for both X11 and Wayland
-                    #[cfg(target_os = "linux")]
-                    {
-                        let _ = window.set_focus();
-                        // Try to grab keyboard focus more aggressively
-                        let _ = window.set_always_on_top(true);
-                    }
-                }
-
                 let lock_state = app_handle.state::<LockState>();
                 let mut guard = lock_state.0.lock().unwrap();
                 let windows = guard.windows.clone();
                 let args = guard.args.clone();
+                let primary_monitor = guard.primary_monitor;
 
                 for label in &windows {
                     if let Some(window) = app_handle.get_webview_window(label) {
                         if !window.is_visible().unwrap_or(false) {
                             let _ = window.show();
                         }
-                        if !window.is_focused().unwrap_or(false) {
-                            let _ = window.set_focus();
+                        if let Ok(position) = window.outer_position() {
+                            if primary_monitor == Some((position.x, position.y))
+                                && !window.is_focused().unwrap_or(false)
+                            {
+                                let _ = window.set_focus();
+                            }
                         }
                         let _ = window.set_always_on_top(true);
-
-                        // Linux-specific: Additional focus and fullscreen enforcement
-                        // Works for both X11 and Wayland (Tauri abstracts the differences)
-                        #[cfg(target_os = "linux")]
-                        {
-                            let _ = window.set_fullscreen(true);
-                            let _ = window.set_focus();
-                            let _ = window.set_always_on_top(true);
-                        }
                     }
                 }
 
@@ -1496,20 +1473,9 @@ fn start_timer_thread(app_handle: AppHandle) {
                     if let Ok(monitors) = app_handle.available_monitors() {
                         let mut covered_indices = HashSet::new();
 
-                        if let Some(main_win) = app_handle.get_webview_window("main") {
-                            if let Ok(pos) = main_win.outer_position() {
-                                for (i, m) in monitors.iter().enumerate() {
-                                    if m.position().x == pos.x && m.position().y == pos.y {
-                                        covered_indices.insert(i);
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-
                         for label in &windows {
-                            if let Some(slave) = app_handle.get_webview_window(label) {
-                                if let Ok(pos) = slave.outer_position() {
+                            if let Some(overlay) = app_handle.get_webview_window(label) {
+                                if let Ok(pos) = overlay.outer_position() {
                                     for (i, m) in monitors.iter().enumerate() {
                                         if m.position().x == pos.x && m.position().y == pos.y {
                                             covered_indices.insert(i);
@@ -1521,15 +1487,20 @@ fn start_timer_thread(app_handle: AppHandle) {
 
                         for (i, m) in monitors.iter().enumerate() {
                             if !covered_indices.contains(&i) {
-                                let label = format!("lock-slave-{}", i);
+                                let label = format!("lock-overlay-{}", i);
                                 if let Some(win) = app_handle.get_webview_window(&label) {
                                     let _ = win.set_position(m.position().clone());
                                     let _ = win.set_size(tauri::Size::Physical(m.size().clone()));
-                                    let _ = win.set_fullscreen(true);
                                 } else {
-                                    if let Some(new_label) =
-                                        create_slave_window(&app_handle, m, args.as_ref(), i)
-                                    {
+                                    let position = (m.position().x, m.position().y);
+                                    let is_primary = primary_monitor == Some(position);
+                                    if let Some(new_label) = create_lock_overlay_window(
+                                        &app_handle,
+                                        m,
+                                        args.as_ref(),
+                                        i,
+                                        is_primary,
+                                    ) {
                                         guard.windows.push(new_label);
                                     }
                                 }
@@ -2355,15 +2326,16 @@ fn update_tray_language(app: AppHandle, lang_state: State<LanguageState>, langua
     }
 }
 
-fn create_slave_window(
+fn create_lock_overlay_window(
     app: &AppHandle,
     monitor: &tauri::Monitor,
     task: Option<&LockTaskArgs>,
     index: usize,
+    is_primary: bool,
 ) -> Option<String> {
-    let label = format!("lock-slave-{}", index);
+    let label = format!("lock-overlay-{}", index);
 
-    let mut url_str = String::from("index.html?mode=lock_slave");
+    let mut url_str = format!("index.html?mode=lock_overlay&primary={is_primary}");
     if let Some(t) = task {
         let encoded: String = form_urlencoded::Serializer::new(String::new())
             .append_pair("title", &t.title)
@@ -2377,12 +2349,15 @@ fn create_slave_window(
             .append_pair("current_snooze_count", &t.current_snooze_count.to_string())
             .append_pair("bg_image", &t.bg_image)
             .finish();
-        url_str = format!("index.html?mode=lock_slave&{}", encoded);
+        url_str = format!(
+            "index.html?mode=lock_overlay&primary={is_primary}&{}",
+            encoded
+        );
     }
 
-    if let Ok(slave) =
+    if let Ok(overlay) =
         WebviewWindowBuilder::new(app, &label, WebviewUrl::App(PathBuf::from(url_str)))
-            .title("Lock Screen")
+            .title("Health Reminder Lock Overlay")
             .always_on_top(true)
             .closable(false)
             .minimizable(false)
@@ -2390,22 +2365,19 @@ fn create_slave_window(
             .resizable(false)
             .skip_taskbar(true)
             .visible(false)
-            .focused(true)
+            .focused(is_primary)
+            .transparent(true)
+            .background_color(tauri::utils::config::Color(0, 0, 0, 0))
+            .shadow(false)
             .build()
     {
-        let _ = slave.set_position(monitor.position().clone());
-        let _ = slave.set_size(tauri::Size::Physical(monitor.size().clone()));
-        let _ = slave.show();
-        let _ = slave.set_focus();
-        let _ = slave.set_fullscreen(true);
-
-        // Additional focus and z-order enforcement for Linux
-        #[cfg(target_os = "linux")]
-        {
-            // Request focus again after fullscreen
-            let _ = slave.set_focus();
-            // On Linux, we may need to ensure the window is always on top multiple times
-            let _ = slave.set_always_on_top(true);
+        // 透明窗口不能使用 fullscreen（Windows 上可能变成黑屏），因此直接
+        // 使用显示器的物理坐标和尺寸覆盖屏幕，底下的电脑画面仍实时可见。
+        let _ = overlay.set_position(monitor.position().clone());
+        let _ = overlay.set_size(tauri::Size::Physical(monitor.size().clone()));
+        let _ = overlay.show();
+        if is_primary {
+            let _ = overlay.set_focus();
         }
 
         Some(label)
@@ -2428,75 +2400,41 @@ async fn enter_lock_mode(
         let _ = floating_window.hide();
     }
 
-    let _ = window.unminimize();
-    let _ = window.show();
-    let _ = window.set_fullscreen(true);
-    let _ = window.set_always_on_top(true);
-    let _ = window.set_closable(false);
-    let _ = window.set_minimizable(false);
-    let _ = window.set_focus();
-
     let monitors = window.available_monitors().unwrap_or_default();
     let current_monitor = window.current_monitor().unwrap_or(None);
+    let primary_monitor = current_monitor
+        .as_ref()
+        .map(|monitor| (monitor.position().x, monitor.position().y))
+        .or_else(|| {
+            monitors
+                .first()
+                .map(|monitor| (monitor.position().x, monitor.position().y))
+        });
 
     let mut created_windows = Vec::new();
 
     for (i, m) in monitors.iter().enumerate() {
-        if let Some(ref cm) = current_monitor {
-            // Basic position check to assume it's the same monitor
-            if m.position().x == cm.position().x && m.position().y == cm.position().y {
-                continue;
-            }
-        }
-
-        if let Some(label) = create_slave_window(&app, m, task.as_ref(), i) {
+        let position = (m.position().x, m.position().y);
+        let is_primary = primary_monitor == Some(position);
+        if let Some(label) = create_lock_overlay_window(&app, m, task.as_ref(), i, is_primary) {
             created_windows.push(label);
         }
-    }
-
-    // Additional focus enforcement for Linux after all windows are created
-    #[cfg(target_os = "linux")]
-    {
-        // Re-focus all slave windows to ensure they stay on top
-        for label in created_windows.iter() {
-            if let Some(w) = app.get_webview_window(label) {
-                let _ = w.set_focus();
-                let _ = w.set_always_on_top(true);
-            }
-        }
-        // Re-focus main window
-        let _ = window.set_focus();
-        let _ = window.set_always_on_top(true);
     }
 
     let mut state_guard = state.0.lock().unwrap();
     state_guard.windows.extend(created_windows);
     state_guard.args = task;
+    state_guard.primary_monitor = primary_monitor;
 
     Ok(())
 }
 
 #[tauri::command]
-fn exit_lock_mode(app: tauri::AppHandle, state: State<LockState>, restore_visible: Option<bool>) {
-    let restore_visible = restore_visible.unwrap_or(false);
-    let window = app.get_webview_window("main");
-
-    if let Some(window) = window {
-        if !restore_visible {
-            let _ = window.hide();
-        }
-
-        let _ = window.set_fullscreen(false);
-        let _ = window.set_always_on_top(false);
-        let _ = window.set_closable(true);
-        let _ = window.set_minimizable(true);
-
-        if restore_visible {
-            let _ = window.show();
-            let _ = window.set_focus();
-        }
-    }
-
+fn exit_lock_mode(
+    app: tauri::AppHandle,
+    state: State<LockState>,
+    _restore_visible: Option<bool>,
+) {
     let mut state_guard = state.0.lock().unwrap();
     for label in state_guard.windows.iter() {
         if let Some(w) = app.get_webview_window(label) {
@@ -2505,6 +2443,7 @@ fn exit_lock_mode(app: tauri::AppHandle, state: State<LockState>, restore_visibl
     }
     state_guard.windows.clear();
     state_guard.args = None;
+    state_guard.primary_monitor = None;
 }
 
 pub fn run() {
@@ -2573,6 +2512,7 @@ pub fn run() {
         .manage(LockState(Mutex::new(LockStateInner {
             windows: Vec::new(),
             args: None,
+            primary_monitor: None,
         })))
         .manage(PauseMenuState(Mutex::new(None)))
         .manage(LanguageState(Mutex::new("zh-CN".to_string())))
@@ -2661,7 +2601,7 @@ pub fn run() {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 // If the window is a lock slave, just close it (don't prevent close)
                 // The label check: main window has label "main" (default).
-                // Slave windows have "lock-slave-X".
+                // Transparent lock overlays have "lock-overlay-X" labels.
                 if window.label() == "main" {
                     api.prevent_close();
                     let _ = window.hide();

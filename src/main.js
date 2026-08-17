@@ -105,6 +105,8 @@ let mainWindowVisibleBeforeLock = true;
 let floatingWindowVisibleBeforeLock = false;
 let floatingCountdownNotified = false;
 let isLockSlaveWindow = false;
+let isLockOverlayWindow = false;
+let isPrimaryLockOverlay = false;
 let floatingTaskMenuOpen = false;
 let floatingGeometrySyncing = false;
 let floatingWindowLifecycleBound = false;
@@ -1490,8 +1492,11 @@ async function init() {
     return;
   }
 
-  if (urlParams.get('mode') === 'lock_slave') {
-    isLockSlaveWindow = true;
+  if (urlParams.get('mode') === 'lock_overlay') {
+    isLockOverlayWindow = true;
+    isPrimaryLockOverlay = urlParams.get('primary') === 'true';
+    isLockSlaveWindow = !isPrimaryLockOverlay;
+    document.body.classList.add('lock-overlay-mode');
     const task = {
       title: urlParams.get('title') || '休息时间',
       desc: urlParams.get('desc') || '让眼睛休息一下',
@@ -1522,11 +1527,10 @@ async function init() {
 
     renderFullUI();
 
-    // 隐藏从属屏幕的解锁按钮
-    setTimeout(() => {
-      const btn = document.querySelector('.unlock-btn');
-      if (btn) btn.style.display = 'none';
-    }, 0);
+    await listen('lock-overlay-time-up', () => {
+      lockScreenState.waitingConfirm = true;
+      renderFullUI();
+    });
 
     startLockCountdown(duration);
 
@@ -1657,6 +1661,16 @@ async function init() {
 
   await listen('system-unlocked', () => {
     invoke('timer_set_system_locked', { locked: false }).catch(console.error);
+  });
+
+  // 透明锁屏层只负责显示和收集操作，任务重置仍统一由主窗口处理。
+  await listen('lock-overlay-unlock', () => {
+    endLockScreen().catch(console.error);
+  });
+
+  await listen('lock-overlay-snooze', (event) => {
+    const minutes = parseInt(event.payload?.minutes || 5);
+    snoozeTask(minutes).catch(console.error);
   });
 
   // 每秒更新工作时间统计（这个保留在前端）
@@ -1872,6 +1886,7 @@ function startLockCountdown(durationSeconds, onComplete = null) {
 function showLockConfirm() {
   lockScreenState.waitingConfirm = true;
   renderFullUI();
+  emit('lock-overlay-time-up').catch(() => {});
 }
 
 async function snoozeTask(minutes) {
@@ -2674,7 +2689,7 @@ function renderFullUI() {
       </div>
     </div>
 
-    <div class="lock-screen ${lockScreenState.active ? 'show' : ''}" style="${settings.lockScreenBgImage && settings.lockScreenBgImage.trim() !== '' ? `background-image: linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)), url('${convertFileSrc(settings.lockScreenBgImage)}');` : ''}">
+    <div class="lock-screen ${lockScreenState.active && isLockOverlayWindow ? 'show' : ''}" style="${settings.lockScreenBgImage && settings.lockScreenBgImage.trim() !== '' ? `background-image: linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)), url('${convertFileSrc(settings.lockScreenBgImage)}');` : ''}">
       <div class="lock-screen-content">
         <div class="lock-timer-ring">
           <svg width="200" height="200" viewBox="0 0 200 200">
@@ -3304,7 +3319,11 @@ function bindEvents() {
   if (lockSnoozeBtn) {
     lockSnoozeBtn.addEventListener('click', () => {
       const minutes = lockScreenState.task ? (lockScreenState.task.snoozeMinutes || 5) : 5;
-      snoozeTask(minutes);
+      if (isLockOverlayWindow) {
+        emit('lock-overlay-snooze', { minutes }).catch(console.error);
+      } else {
+        snoozeTask(minutes);
+      }
     });
   }
   
@@ -3343,12 +3362,24 @@ function bindEvents() {
 
   const unlockBtn = document.getElementById('unlockBtn');
   if (unlockBtn) {
-    unlockBtn.addEventListener('click', () => endLockScreen());
+    unlockBtn.addEventListener('click', () => {
+      if (isLockOverlayWindow) {
+        emit('lock-overlay-unlock').catch(console.error);
+      } else {
+        endLockScreen();
+      }
+    });
   }
 
   const confirmBtn = document.getElementById('confirmBtn');
   if (confirmBtn) {
-    confirmBtn.addEventListener('click', () => endLockScreen());
+    confirmBtn.addEventListener('click', () => {
+      if (isLockOverlayWindow) {
+        emit('lock-overlay-unlock').catch(console.error);
+      } else {
+        endLockScreen();
+      }
+    });
   }
 
   // 空闲重置横幅关闭按钮

@@ -792,6 +792,42 @@ body {
   visibility: visible;
 }
 
+/* 独立透明锁屏层：保留用户原本的桌面/应用画面，只覆盖必要控件。 */
+body.lock-overlay-mode {
+  background: transparent !important;
+  overflow: hidden;
+}
+
+body.lock-overlay-mode #app {
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+}
+
+body.lock-overlay-mode #app > :not(.lock-screen) {
+  display: none !important;
+}
+
+body.lock-overlay-mode .lock-screen {
+  background-color: transparent !important;
+  background-image: none !important;
+  transition: opacity 0.2s ease;
+}
+
+body.lock-overlay-mode .lock-screen-content {
+  min-width: 340px;
+  padding: 34px 44px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 30px;
+  background: rgba(15, 23, 42, 0.72);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.38);
+  backdrop-filter: blur(16px) saturate(120%);
+  -webkit-backdrop-filter: blur(16px) saturate(120%);
+}
+
 .lock-screen-content {
   text-align: center;
   transform: scale(0.9) translateY(20px);

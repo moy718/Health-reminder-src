@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main-capability",
   "description": "Capability for the main window",
-  "windows": ["main", "lock-slave-*", "floating-window", "neon-overlay-*", "reminder-popup"],
+  "windows": ["main", "lock-overlay-*", "floating-window", "neon-overlay-*", "reminder-popup"],
   "permissions": [
     "core:default",
     "core:window:allow-close",
