@@ -1948,6 +1948,7 @@ fn ensure_neon_overlay(
     .always_on_top(true)
     .skip_taskbar(true)
     .focused(false)
+    .focusable(false)
     .resizable(false)
     .visible(false);
 
@@ -1991,6 +1992,9 @@ fn show_neon_overlay(app: AppHandle) -> Result<(), String> {
                     continue;
                 }
             };
+            // focused(false) 只控制初次创建时的焦点；focusable(false) 才会在
+            // Windows 上设置 WS_EX_NOACTIVATE，确保 show() 不会打断正在输入的窗口。
+            let _ = window.set_focusable(false);
             if let Err(e) = window.show() {
                 debug_log_write(&format!("neon: {} show FAILED: {}", label, e));
                 continue;
@@ -2013,7 +2017,8 @@ fn show_neon_overlay(app: AppHandle) -> Result<(), String> {
 }
 
 /// 提醒弹窗：显示"请走动一会/请喝水/请远眺"等提示，不打断用户打字。
-/// 关键点：focused(false) 使窗口绝不抢键盘焦点（WS_EX_NOACTIVATE）。
+/// 关键点：focusable(false) 在 Windows 上使用 WS_EX_NOACTIVATE，窗口显示时
+/// 不会改变当前前台窗口，因而不会打断用户正在进行的键盘输入。
 fn ensure_reminder_popup(app: &AppHandle) -> Result<WebviewWindow, String> {
     if let Some(window) = app.get_webview_window("reminder-popup") {
         return Ok(window);
@@ -2042,7 +2047,8 @@ fn ensure_reminder_popup(app: &AppHandle) -> Result<WebviewWindow, String> {
     .decorations(false)
     .always_on_top(true)
     .skip_taskbar(true)
-    .focused(false) // 关键：不抢键盘焦点，打字不被打断
+    .focused(false)
+    .focusable(false) // Windows: WS_EX_NOACTIVATE，不抢键盘焦点
     .resizable(false)
     .visible(false);
 
@@ -2072,6 +2078,8 @@ fn show_reminder_popup(app: AppHandle, message: String) -> Result<(), String> {
         };
         // 先发消息再显示，保证页面拿到最新文案
         let _ = window.emit("popup-show", message.clone());
+        // 对复用的窗口也再次强制不可聚焦，防止系统样式被其他操作改回。
+        let _ = window.set_focusable(false);
         if let Err(e) = window.show() {
             debug_log_write(&format!("popup: show FAILED: {}", e));
             return;
