@@ -71,7 +71,6 @@ fork 自 [kaima2022/Health-reminder](https://github.com/kaima2022/Health-reminde
 - **1.8.5（仅本地，暂未推送 GitHub）** 增加 Windows 每天 08:00 自动启动计划任务（静默进托盘、错过后补启动、允许从睡眠唤醒），并增加单实例保护，避免计划任务与已运行程序形成双进程
 - **1.8.6（仅本地，暂未推送 GitHub）** 锁屏页的紧急解锁从“长按 3 秒”改为单击立即解除，并增加重复点击保护
 - **1.8.7（仅本地，暂未推送 GitHub）** 不再把主设置窗口强制全屏；改用多屏透明锁屏层，保留桌面和当前应用作为实时背景，只在中央显示倒计时与操作卡片
-- **1.8.8（仅本地，暂未推送 GitHub）** 普通提醒弹窗和多屏霓虹层改为不可激活窗口（Windows `WS_EX_NOACTIVATE`），每次显示前再次强制 `focusable(false)`，避免提醒出现时打断键盘输入
 - GitHub 发布：`.github/workflows/release.yml` 在推送 `v*` 标签时自动构建 Windows x64 安装包、便携版 ZIP 和 `SHA256SUMS.txt`，并上传到 Releases；GitHub 自动生成的 Source code ZIP 不包含 EXE
 - git 分支 `master`，最新提交 = "霓虹灯运动方向统一为逆时针（外观保持 v9）"
 - git 标签 `v9` = 外观冻结版（可 `git checkout v9 -- neon.html` 恢复外观）
